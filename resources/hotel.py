@@ -4,8 +4,10 @@ from flask_jwt_extended import jwt_required
 
 class Hoteis(Resource):
     def get(self):
-        return {'hoteis': [hotel.json() for hotel in HotelModel.query.all()]} # SELECT * FROM Hoteis
-    
+        # Rota para listar todos os hoteis cadastrados
+        # Executa a query SELECT * FROM Hoteis
+        return {'hoteis': [hotel.json() for hotel in HotelModel.query.all()]}
+
 class Hotel(Resource):
     atributos = reqparse.RequestParser()
     atributos.add_argument('nome', type=str, required=True, help="The field 'nome' cannot be left blank!")
@@ -14,6 +16,8 @@ class Hotel(Resource):
     atributos.add_argument('cidade')
 
     def get(self, hotel_id):
+        # Rota para buscar um hotel pelo ID
+        # Executa a query SELECT * FROM Hoteis WHERE hotel_id = hotel_id
         hotel = HotelModel.find_hotel(hotel_id)
         if hotel:
             return hotel.json()
@@ -21,6 +25,8 @@ class Hotel(Resource):
     
     @jwt_required()
     def post(self, hotel_id):
+        # Rota para criar um novo hotel
+        # Executa a query INSERT INTO Hoteis (hotel_id, nome, estrelas, diaria, cidade) VALUES (hotel_id, nome, estrelas, diaria, cidade)
         if HotelModel.find_hotel(hotel_id):
             return {"message": "Hotel id '{}' already exists.".format(hotel_id)},400
         
@@ -35,7 +41,8 @@ class Hotel(Resource):
     
     @jwt_required()
     def put(self, hotel_id):
-
+        # Rota para atualizar um hotel pelo ID
+        # Executa a query UPDATE Hoteis SET nome = nome, estrelas = estrelas, diaria = diaria, cidade = cidade WHERE hotel_id = hotel_id
         dados = Hotel.atributos.parse_args()
         hotel_encontrado = HotelModel.find_hotel(hotel_id)
         if hotel_encontrado:
@@ -52,6 +59,8 @@ class Hotel(Resource):
     
     @jwt_required()
     def delete(self, hotel_id):
+        # Rota para deletar um hotel pelo ID
+        # Executa a query DELETE FROM Hoteis WHERE hotel_id = hotel_id
         hotel = HotelModel.find_hotel(hotel_id)
         if hotel:
             try:
