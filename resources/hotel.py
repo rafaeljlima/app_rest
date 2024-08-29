@@ -1,8 +1,8 @@
-from flask_restful import Resource, reqparse
+from flask import jsonify, request
+from flask_restful import Resource
 from models.hotel import HotelModel
 from flask_jwt_extended import jwt_required
-import sqlite3
-import json
+from sqlalchemy.exc import SQLAlchemyError
 
 def normalize_path_params(cidade=None,
                           estrelas_min=0,
@@ -28,59 +28,58 @@ def normalize_path_params(cidade=None,
         'limit': limit,
         'offset': offset}
 
-path_params = reqparse.RequestParser()
-path_params.add_argument('cidade', type=str)
-path_params.add_argument('estrelas_min', type=float)
-path_params.add_argument('estrelas_max', type=float)
-path_params.add_argument('diaria_min', type=float)
-path_params.add_argument('diaria_max', type=float)
-path_params.add_argument('limit', type=float)
-path_params.add_argument('offset', type=float)
-
 class Hoteis(Resource):
     def get(self):
-        connection = sqlite3.connect('banco.db')
-        cursor = connection.cursor()
-
-        dados = path_params.parse_args()
-        dados_validos = {chave:dados[chave] for chave in dados if dados[chave] is not None}
+        # Obtendo os parâmetros da URL
+        args = request.args
+        try:
+            # Convertendo parâmetros para float onde aplicável
+            dados_validos = {
+                'cidade': args.get('cidade'),
+                'estrelas_min': float(args.get('estrelas_min', 0)),
+                'estrelas_max': float(args.get('estrelas_max', 5)),
+                'diaria_min': float(args.get('diaria_min', 0)),
+                'diaria_max': float(args.get('diaria_max', 10000)),
+                'limit': int(args.get('limit', 50)),
+                'offset': int(args.get('offset', 0))
+            }
+        except ValueError as e:
+            return {"message": f"Invalid parameter value: {e}"}, 400
+        
         parametros = normalize_path_params(**dados_validos)
 
-        if not parametros.get('cidade'):
-            consulta = "SELECT * FROM hoteis \
-            WHERE (estrelas >= ? and estrelas <= ?) \
-            and (diaria >= ? and diaria <= ?) \
-            LIMIT ? OFFSET ?"
-            tupla = tuple([parametros[chave] for chave in parametros])
-            resultado = cursor.execute(consulta, tupla)
-        else:
-            consulta = "SELECT * FROM hoteis \
-            WHERE (estrelas >= ? and estrelas <= ?) \
-            and (diaria >= ? and diaria <= ?) \
-            and cidade = ? LIMIT ? OFFSET ?"
-            tupla = tuple([parametros[chave] for chave in parametros])
-            resultado = cursor.execute(consulta, tupla)
+        try:
+            # Construindo a consulta
+            query = HotelModel.query.filter(
+                HotelModel.estrelas.between(parametros['estrelas_min'], parametros['estrelas_max']),
+                HotelModel.diaria.between(parametros['diaria_min'], parametros['diaria_max'])
+            )
+            if parametros.get('cidade'):
+                query = query.filter(HotelModel.cidade == parametros['cidade'])
+            
+            query = query.limit(parametros['limit']).offset(parametros['offset'])
+            
+            hoteis = query.all()
 
-        hoteis = []
-        for linha in resultado:
-            hoteis.append({
-                'hotel_id': linha[0],
-                'nome': linha[1],
-                'estrelas': linha[2],
-                'diaria': linha[3],
-                'cidade': linha[4]
-            })
+            # Verificando se os dados foram encontrados
+            if not hoteis:
+                return {'message': 'No hotels found matching the criteria.'}, 404
 
-        # Executa a query SELECT * FROM Hoteis
-        return {'hoteis': hoteis}
+            # Convertendo os resultados para JSON
+            response = {'hoteis': [hotel.json() for hotel in hoteis]}
+            return jsonify(response)
 
-
+        except SQLAlchemyError as e:
+            print(f"Erro na consulta: {e}")
+            return {"message": "An internal error occurred while querying hotels."}, 500
+        
 class Hotel(Resource):
-    atributos = reqparse.RequestParser()
-    atributos.add_argument('nome', type=str, required=True, help="The field 'nome' cannot be left blank!")
-    atributos.add_argument('estrelas')
-    atributos.add_argument('diaria')
-    atributos.add_argument('cidade')
+    atributos = {
+        'nome': {'type': str, 'required': True, 'help': "The field 'nome' cannot be left blank!"},
+        'estrelas': {'type': float},
+        'diaria': {'type': float},
+        'cidade': {'type': str}
+    }
 
     def get(self, hotel_id):
         # Rota para buscar um hotel pelo ID
@@ -93,33 +92,39 @@ class Hotel(Resource):
     def post(self, hotel_id):
         # Rota para criar um novo hotel
         if HotelModel.find_hotel(hotel_id):
-            return {"message": "Hotel id '{}' already exists.".format(hotel_id)}, 400
+            return {"message": f"Hotel id '{hotel_id}' already exists."}, 400
         
-        dados = Hotel.atributos.parse_args()
-        print(f"Dados recebidos para POST: {dados}")
+        dados = request.get_json()
+        if not all(field in dados for field in ['nome']):
+            return {"message": "The field 'nome' cannot be left blank!"}, 400
+        
         hotel = HotelModel(hotel_id, **dados)
         try:
             hotel.save_hotel()
-        except:
+        except SQLAlchemyError as e:
+            print(f"Erro ao salvar o hotel: {e}")
             return {"message": "An internal error occurred while inserting the hotel."}, 500
         return hotel.json(), 201
 
     @jwt_required()
     def put(self, hotel_id):
         # Rota para atualizar um hotel pelo ID
-        dados = Hotel.atributos.parse_args()
-        print(f"Dados recebidos para PUT: {dados}")
+        dados = request.get_json()
         hotel_encontrado = HotelModel.find_hotel(hotel_id)
         if hotel_encontrado:
             hotel_encontrado.update_hotel(**dados)
-            hotel_encontrado.save_hotel()
+            try:
+                hotel_encontrado.save_hotel()
+            except SQLAlchemyError as e:
+                print(f"Erro ao atualizar o hotel: {e}")
+                return {"message": "An internal error occurred while updating the hotel."}, 500
             return hotel_encontrado.json(), 200
         hotel = HotelModel(hotel_id, **dados)
         try:
             hotel.save_hotel()
-        except:
+        except SQLAlchemyError as e:
+            print(f"Erro ao salvar o hotel: {e}")
             return {"message": "An internal error occurred while inserting the hotel."}, 500
-        hotel.save_hotel()
         return hotel.json(), 201
 
     @jwt_required()
@@ -129,7 +134,8 @@ class Hotel(Resource):
         if hotel:
             try:
                 hotel.delete_hotel()
-            except:
+            except SQLAlchemyError as e:
+                print(f"Erro ao deletar o hotel: {e}")
                 return {"message": "An internal error occurred while deleting the hotel."}, 500
             return {'message': 'Hotel deleted'}
         return {'message': 'Hotel not found'}, 404

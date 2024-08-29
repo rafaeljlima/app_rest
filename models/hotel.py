@@ -20,12 +20,6 @@ class HotelModel(banco.Model): #Classe que representa a tabela 'hoteis' no banco
         self.cidade = cidade
 
     def json(self):
-        """
-        Retorna um dicionário contendo os atributos da classe no formato JSON.
-
-        Returns:
-            dict: Dicionário contendo os atributos da classe no formato JSON.
-        """
         return {
             'hotel_id': self.hotel_id,
             'nome': self.nome,
@@ -36,15 +30,6 @@ class HotelModel(banco.Model): #Classe que representa a tabela 'hoteis' no banco
     
     @classmethod
     def find_hotel(cls, hotel_id):
-        """
-        Retorna um objeto da classe HotelModel que corresponde ao ID do hotel fornecido.
-
-        Args:
-            hotel_id (str): ID do hotel a ser buscado.
-
-        Returns:
-            HotelModel ou None: Objeto da classe HotelModel que corresponde ao ID do hotel fornecido, ou None se não for encontrado.
-        """
         hotel = cls.query.filter_by(hotel_id=hotel_id).first() # SELECT * FROM hoteis WHERE hotel_id = hotel_id
         if hotel:
             return hotel
